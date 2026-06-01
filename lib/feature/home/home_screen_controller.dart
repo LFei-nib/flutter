@@ -1,0 +1,85 @@
+import 'package:flutter_challenge/model/offer_model.dart';
+import 'package:flutter_challenge/repository/offer_repo.dart';
+import 'package:flutter_challenge/service/the_exceptions.dart';
+import 'package:get/get.dart';
+
+enum OfferFilter { all, bakery, cafe, market }
+
+class HomeScreenController extends GetxController {
+  final OfferRepo _offerRepo = Get.find<OfferRepo>();
+
+  final RxBool _isLoading = true.obs;
+  final RxBool _hasError = false.obs;
+  final RxList<OfferModel> _offers = <OfferModel>[].obs;
+  final Rx<OfferFilter> _activeFilter = OfferFilter.all.obs;
+  final RxString _searchQuery = ''.obs;
+
+  bool get isLoading => _isLoading.value;
+  bool get hasError => _hasError.value;
+  List<OfferModel> get offers => _offers;
+  OfferFilter get activeFilter => _activeFilter.value;
+  String get searchQuery => _searchQuery.value;
+
+  /// Fixed (Task A1): filter + search applied — returns all offers.
+  List<OfferModel> get visibleOffers {
+    return _offers.where((offer) {
+      // 1. Category Filter
+      final matchesCategory = activeFilter == OfferFilter.all ||
+          offer.category.toLowerCase() == activeFilter.name.toLowerCase();
+
+      // 2. Search Filter (Title or Store Name)
+      final query = searchQuery.trim().toLowerCase();
+      final matchesSearch = query.isEmpty ||
+          offer.title.toLowerCase().contains(query) ||
+          offer.storeName.toLowerCase().contains(query);
+
+      return matchesCategory && matchesSearch;
+    }).toList();
+  }
+
+  @override
+  void onInit() {
+    super.onInit();
+    fetchOffers();
+  }
+
+  Future<void> fetchOffers() async {
+    _isLoading.value = true;
+    _hasError.value = false;
+    try {
+      final data = await _offerRepo.fetchOffers();
+      _offers.assignAll(data);
+    } on TheException catch (e) {
+      _hasError.value = true;
+      Get.snackbar('error_generic'.tr, e.displayError());
+    } finally {
+      _isLoading.value = false;
+    }
+  }
+
+  void setFilter(OfferFilter filter) {
+    _activeFilter.value = filter;
+  }
+
+  void setSearchQuery(String value) {
+    _searchQuery.value = value;
+  }
+
+  Future<void> toggleFavorite(String offerId) async {
+    try {
+      await _offerRepo.toggleFavorite(offerId);
+
+      // FIXED (Bug B2): Find and update the item locally in our reactive list
+      final index = _offers.indexWhere((offer) => offer.id == offerId);
+      if (index >= 0) {
+        final targetOffer = _offers[index];
+        _offers[index] = targetOffer.copyWith(isFavorite: !targetOffer.isFavorite);
+      }
+    } catch (e) {
+      Get.snackbar('error_generic'.tr, 'Could not update favorite status');
+    }
+  }
+
+  /// Fixed GAP (Task A3): pull-to-refresh connected in UI.
+  Future<void> onRefresh() => fetchOffers();
+}
